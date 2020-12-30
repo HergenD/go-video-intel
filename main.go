@@ -68,7 +68,7 @@ func getJson(text string, source string, target string, targetStruct interface{}
 	body := strings.NewReader(`source=` + source + `&target=` + target + `&text=` + text)
 	req, err := http.NewRequest("POST", cfg.Naver.Endpoint, body)
 	if err != nil {
-		// handle err
+		check(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("X-Naver-Client-Id", cfg.Naver.ClientId)
@@ -76,7 +76,7 @@ func getJson(text string, source string, target string, targetStruct interface{}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		// handle err
+		check(err)
 	}
 	defer resp.Body.Close()
 
@@ -140,19 +140,17 @@ func textfromvid() {
 	sort.Strings(counter)
 
 	for _, value := range counter {
-		fmt.Println(holder[value]["start"] + "-" + holder[value]["end"])
-		fmt.Println(holder[value]["text"])
-		fmt.Println("")
 		f, err := os.OpenFile(cfg.Settings.OutputFile,
 			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			log.Println(err)
+			check(err)
 		}
 		defer f.Close()
 		if _, err := f.WriteString(holder[value]["start"] + " --> " + holder[value]["end"] + "\n" + holder[value]["text"] + "\n\n"); err != nil {
-			log.Println(err)
+			check(err)
 		}
 	}
+	fmt.Println(cfg.Settings.OutputFile + " has been made.")
 }
 
 func check(e error) {
@@ -189,8 +187,17 @@ func convertTimecode(time string) string {
 	}
 	arr = deleteFromSlice(arr, 2)
 	for i, value := range arr {
-		if len(value) < 2 {
+		if len(value) < 2 && i != 3 {
 			arr[i] = "0" + value
+		}
+		if i == 3 {
+			arr[i] = arr[i] + "0"
+			if len(arr[i]) < 3 {
+				arr[i] = arr[i] + "0"
+			}
+			if len(arr[i]) < 3 {
+				arr[i] = arr[i] + "0"
+			}
 		}
 	}
 	return arr[0] + ":" + arr[1] + ":" + arr[2] + "." + arr[3]
