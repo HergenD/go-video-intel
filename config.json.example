@@ -1,7 +1,7 @@
 {
     "naver": {
-        "clientId": "clientid",
-        "clientSecret": "clientsecret",
+        "clientId": "id",
+        "clientSecret": "secret",
         "endpoint": "https://openapi.naver.com/v1/papago/n2mt"
     },
     "google": {
@@ -11,7 +11,8 @@
         "script": "Hangul",
         "sourceLanguage": "ko",
         "targetLanguage": "en",
-        "inputFile": "file.mp4",
-        "outputFile": "subs.vtt"
+        "inputFile": "input.mp4",
+        "outputFile": "output.vtt",
+        "translate": true
     }
 }
