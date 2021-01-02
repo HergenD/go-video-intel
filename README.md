@@ -35,7 +35,11 @@ The config looks like this:
 ```
 ## Run
 To build, simply
-`go build`
+```bash
+$ go build
+```
 
 Then to run:
-`./go-video-intel`
+```bash
+$ ./go-video-intel
+```
