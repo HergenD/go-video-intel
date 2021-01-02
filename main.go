@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,6 +61,21 @@ type SettingsConfig struct {
 	OutputFile     string `json:"outputFile"`
 }
 
+type Duration struct {
+	Hours        int64
+	Minutes      int64
+	Seconds      int64
+	Milliseconds int64
+}
+
+type FormatVTT struct {
+	Hours        string
+	Minutes      string
+	Seconds      string
+	Milliseconds string
+	Timecode     string
+}
+
 var cfg Config
 
 var myClient = &http.Client{Timeout: 10 * time.Second}
@@ -83,7 +99,7 @@ func getJson(text string, source string, target string, targetStruct interface{}
 	return json.NewDecoder(resp.Body).Decode(targetStruct)
 }
 
-func textfromvid() {
+func textfromvid(inputFile string) bool {
 	ctx := context.Background()
 
 	// Creates a client.
@@ -92,7 +108,7 @@ func textfromvid() {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	fileBytes, err := ioutil.ReadFile(cfg.Settings.InputFile)
+	fileBytes, err := ioutil.ReadFile(inputFile)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -121,7 +137,7 @@ func textfromvid() {
 			segment := annotation.GetSegments()[0]
 			start, _ := ptypes.Duration(segment.GetSegment().GetStartTimeOffset())
 			end, _ := ptypes.Duration(segment.GetSegment().GetEndTimeOffset())
-			startCode := convertTimecode(start.String())
+			startCode := durationToVTT(parseTimecode(start.Milliseconds())).Timecode
 			startCodeTrimmed := strings.Replace(startCode, ":", "", -1)
 			startCodeTrimmed = strings.Replace(startCodeTrimmed, ".", "", -1)
 			translation := new(Translation) // or &Foo{}
@@ -132,7 +148,7 @@ func textfromvid() {
 			holder[startCodeTrimmed] = make(map[string]string)
 			holder[startCodeTrimmed]["text"] = translatedText
 			holder[startCodeTrimmed]["start"] = startCode
-			holder[startCodeTrimmed]["end"] = convertTimecode(end.String())
+			holder[startCodeTrimmed]["end"] = durationToVTT(parseTimecode(end.Milliseconds())).Timecode
 			counter = append(counter, startCodeTrimmed)
 		}
 	}
@@ -151,6 +167,40 @@ func textfromvid() {
 		}
 	}
 	fmt.Println(cfg.Settings.OutputFile + " has been made.")
+	return true
+}
+
+func parseTimecode(timecode int64) (parsed Duration) {
+	parsed.Milliseconds = timecode % 1000
+	parsed.Seconds = int64((timecode / 1000) % 60)
+	parsed.Minutes = int64((timecode / (1000 * 60)) % 60)
+	parsed.Hours = int64((timecode / (1000 * 60 * 60)) % 24)
+	return
+}
+
+func durationToVTT(duration Duration) (vtt FormatVTT) {
+
+	vtt.Hours = strconv.FormatInt(duration.Hours, 10)
+	vtt.Minutes = strconv.FormatInt(duration.Minutes, 10)
+	vtt.Seconds = strconv.FormatInt(duration.Seconds, 10)
+	vtt.Milliseconds = strconv.FormatInt(duration.Milliseconds, 10)
+
+	for len(vtt.Hours) < 2 {
+		vtt.Hours = "0" + vtt.Hours
+	}
+	for len(vtt.Minutes) < 2 {
+		vtt.Minutes = "0" + vtt.Minutes
+	}
+	for len(vtt.Seconds) < 2 {
+		vtt.Seconds = "0" + vtt.Seconds
+	}
+	for len(vtt.Milliseconds) < 3 {
+		vtt.Milliseconds = vtt.Milliseconds + "0"
+	}
+
+	vtt.Timecode = vtt.Hours + ":" + vtt.Minutes + ":" + vtt.Seconds + "." + vtt.Milliseconds
+
+	return
 }
 
 func check(e error) {
@@ -159,62 +209,13 @@ func check(e error) {
 	}
 }
 
-func convertTimecode(time string) string {
-	arr := strings.Split(time, "h")
-	if len(arr) != 2 {
-		arr = append(arr, arr[0])
-		arr[0] = "00"
-	}
-	arr = append(arr, strings.Split(arr[1], "m")...)
-	arr = deleteFromSlice(arr, 1)
-	if len(arr) != 3 {
-		arr = append(arr, arr[1])
-		arr[1] = "00"
-	}
-
-	arr = append(arr, strings.Split(arr[2], "s")...)
-	arr = deleteFromSlice(arr, 2)
-	if len(arr) != 4 {
-		arr = append(arr, arr[2])
-		arr[2] = "00"
-	}
-	arr = append(arr, strings.Split(arr[2], ".")...)
-
-	arr = deleteFromSlice(arr, 2)
-	if len(arr) != 5 {
-		arr = append(arr, arr[2])
-		arr[2] = "00"
-	}
-	arr = deleteFromSlice(arr, 2)
-	for i, value := range arr {
-		if len(value) < 2 && i != 3 {
-			arr[i] = "0" + value
-		}
-		if i == 3 {
-			arr[i] = arr[i] + "0"
-			if len(arr[i]) < 3 {
-				arr[i] = arr[i] + "0"
-			}
-			if len(arr[i]) < 3 {
-				arr[i] = arr[i] + "0"
-			}
-		}
-	}
-	return arr[0] + ":" + arr[1] + ":" + arr[2] + "." + arr[3]
-}
-
-func deleteFromSlice(arr []string, i int) []string {
-	// Remove the element at index i from a.
-	copy(arr[i:], arr[i+1:]) // Shift a[i+1:] left one index.
-	arr[len(arr)-1] = ""     // Erase last element (write zero value).
-	arr = arr[:len(arr)-1]   // Truncate slice.
-	return arr
-}
-
 func main() {
 	err := cleanenv.ReadConfig("config.json", &cfg)
 	if err != nil {
 		panic(err)
 	}
-	textfromvid()
+	text := textfromvid(cfg.Settings.InputFile)
+	if text {
+		fmt.Println("done")
+	}
 }
