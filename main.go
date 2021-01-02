@@ -65,6 +65,7 @@ type Duration struct {
 	Minutes      int64
 	Seconds      int64
 	Milliseconds int64
+	Source       int64
 }
 
 type FormatVTT struct {
@@ -81,9 +82,15 @@ type Subtitle struct {
 	text  string
 }
 
+type PartialMatching struct {
+	Match           bool
+	MatchPercentage int
+}
+
 type FixOptions struct {
 	IgnoreWhitespace bool
-	PartialMatch     bool
+	Partial          PartialMatching
+	MinimumDuration  int
 }
 
 type TranslateOptions struct {
@@ -128,7 +135,7 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 	for _, annotation := range result.TextAnnotations {
 		text := annotation.GetText()
 		info := whatlanggo.Detect(text)
-		if whatlanggo.Scripts[info.Script] == "Hangul" {
+		if whatlanggo.Scripts[info.Script] == cfg.Settings.Script {
 			segment := annotation.GetSegments()[0]
 			start, _ := ptypes.Duration(segment.GetSegment().GetStartTimeOffset())
 			end, _ := ptypes.Duration(segment.GetSegment().GetEndTimeOffset())
@@ -152,6 +159,7 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 }
 
 func parseTimecode(timecode int64) (parsed Duration) {
+	parsed.Source = timecode
 	parsed.Milliseconds = timecode % 1000
 	parsed.Seconds = int64((timecode / 1000) % 60)
 	parsed.Minutes = int64((timecode / (1000 * 60)) % 60)
@@ -180,8 +188,10 @@ func naver(text string, source string, target string, targetStruct interface{}) 
 func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, fixOptions FixOptions) (map[string]*Subtitle, []string) {
 	sort.Strings(subtitlesKeys)
 
+	// Fix duplicates
 	for key := 0; key < len(subtitlesKeys); key++ {
 		subKey := subtitlesKeys[key]
+
 		if key+1 < len(subtitlesKeys) {
 			if subtitles[subKey].text == subtitles[subtitlesKeys[key+1]].text {
 				subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
@@ -191,14 +201,60 @@ func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, fixOpt
 				subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
 				subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
 				key--
-			} else if fixOptions.PartialMatch {
-				// TODO
+			} else if fixOptions.Partial.Match {
+				base := strings.Fields(subtitles[subKey].text)
+				compare := strings.Fields(subtitles[subtitlesKeys[key+1]].text)
+				match := 0
+
+				for _, value := range base {
+					i, success := find(compare, value)
+					if success {
+						deleteFromSlice(compare, i)
+						match++
+					}
+				}
+
+				perc := float64(match) / float64(len(base)) * float64(100)
+
+				if perc > float64(fixOptions.Partial.MatchPercentage) {
+					subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
+					subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
+					key--
+				}
 			}
 		}
+	}
 
+	// Fix duration
+	for index, value := range subtitlesKeys {
+		subtitle := subtitles[value]
+		if (subtitle.end.Source - subtitle.start.Source) < int64(fixOptions.MinimumDuration) {
+			var newLength int64
+			if index+1 < len(subtitlesKeys) {
+				if (subtitles[subtitlesKeys[index+1]].start.Source - subtitle.start.Source) < int64(fixOptions.MinimumDuration) {
+					newLength = subtitles[subtitlesKeys[index+1]].start.Source - subtitle.start.Source
+				} else {
+					newLength = int64(fixOptions.MinimumDuration)
+				}
+			} else {
+				newLength = int64(fixOptions.MinimumDuration)
+			}
+
+			newEnd := parseTimecode(subtitle.start.Source + newLength)
+			subtitles[value].end = newEnd
+		}
 	}
 
 	return subtitles, subtitlesKeys
+}
+
+func find(slice []string, val string) (int, bool) {
+	for i, item := range slice {
+		if item == val {
+			return i, true
+		}
+	}
+	return -1, false
 }
 
 func translateSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, translateOptions TranslateOptions) (map[string]*Subtitle, []string) {
@@ -280,13 +336,18 @@ func check(e error) {
 func main() {
 	err := cleanenv.ReadConfig("config.json", &cfg)
 	check(err)
+
 	// 	1) 	Parse text from video, return map with key: start.Milliseconds()
 	//    	and value Subtitle, also a slice for sorting
 	subtitles, subtitlesKeys := subsFromVideo(cfg.Settings.InputFile)
 
 	//	2)	Fix subtitles by merging duplicates (as long as they come after each other within x time)
+	// TODO: Put these options in the cfg
 	fixOptions := &FixOptions{}
 	fixOptions.IgnoreWhitespace = true
+	fixOptions.MinimumDuration = 2000
+	fixOptions.Partial.Match = true
+	fixOptions.Partial.MatchPercentage = 75
 	subtitles, subtitlesKeys = fixSubtitles(subtitles, subtitlesKeys, *fixOptions)
 
 	//	3)	Translate subtitles (language of choice, optional)
