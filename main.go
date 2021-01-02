@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -54,6 +52,7 @@ type GoogleConfig struct {
 }
 
 type SettingsConfig struct {
+	Translate      bool   `json:"translate"`
 	Script         string `json:"script"`
 	SourceLanguage string `json:"sourceLanguage"`
 	TargetLanguage string `json:"targetLanguage"`
@@ -76,60 +75,56 @@ type FormatVTT struct {
 	Timecode     string
 }
 
+type Subtitle struct {
+	start Duration
+	end   Duration
+	text  string
+}
+
+type FixOptions struct {
+	IgnoreWhitespace bool
+	PartialMatch     bool
+}
+
+type TranslateOptions struct {
+	Client string
+	Source string
+	Target string
+}
+
 var cfg Config
 
 var myClient = &http.Client{Timeout: 10 * time.Second}
 
-func getJson(text string, source string, target string, targetStruct interface{}) error {
-	body := strings.NewReader(`source=` + source + `&target=` + target + `&text=` + text)
-	req, err := http.NewRequest("POST", cfg.Naver.Endpoint, body)
-	if err != nil {
-		check(err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	req.Header.Set("X-Naver-Client-Id", cfg.Naver.ClientId)
-	req.Header.Set("X-Naver-Client-Secret", cfg.Naver.ClientSecret)
+func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesKeys []string) {
+	subtitles = make(map[string]*Subtitle)
+	subtitlesKeys = make([]string, 0)
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		check(err)
-	}
-	defer resp.Body.Close()
-
-	return json.NewDecoder(resp.Body).Decode(targetStruct)
-}
-
-func textfromvid(inputFile string) bool {
 	ctx := context.Background()
 
 	// Creates a client.
 	client, err := video.NewClient(ctx, option.WithCredentialsFile(cfg.Google.APIKey))
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
+	check(err)
 
+	// Opens input file
 	fileBytes, err := ioutil.ReadFile(inputFile)
-	if err != nil {
-		fmt.Println(err)
-	}
+	check(err)
 
+	// Use google's video intelligence to do ocr
 	op, err := client.AnnotateVideo(ctx, &videopb.AnnotateVideoRequest{
 		Features: []videopb.Feature{
 			videopb.Feature_TEXT_DETECTION,
 		},
 		InputContent: fileBytes,
 	})
-	if err != nil {
-		// fmt.Errorf("AnnotateVideo: %v", err)
-	}
+	check(err)
 
 	resp, err := op.Wait(ctx)
-	if err != nil {
-		// fmt.Errorf("Wait: %v", err)
-	}
+	check(err)
+
 	result := resp.GetAnnotationResults()[0]
-	holder := make(map[string]map[string]string)
-	counter := make([]string, 0)
+
+	// Loop over results to filter and store subtitles
 	for _, annotation := range result.TextAnnotations {
 		text := annotation.GetText()
 		info := whatlanggo.Detect(text)
@@ -137,37 +132,23 @@ func textfromvid(inputFile string) bool {
 			segment := annotation.GetSegments()[0]
 			start, _ := ptypes.Duration(segment.GetSegment().GetStartTimeOffset())
 			end, _ := ptypes.Duration(segment.GetSegment().GetEndTimeOffset())
-			startCode := durationToVTT(parseTimecode(start.Milliseconds())).Timecode
-			startCodeTrimmed := strings.Replace(startCode, ":", "", -1)
-			startCodeTrimmed = strings.Replace(startCodeTrimmed, ".", "", -1)
-			translation := new(Translation) // or &Foo{}
+			startDuration := parseTimecode(start.Milliseconds())
+			endDuration := parseTimecode(end.Milliseconds())
+			keys := strconv.FormatInt(start.Milliseconds(), 10)
+			for len(keys) < 12 {
+				keys = "0" + keys
+			}
 
-			getJson(text, cfg.Settings.SourceLanguage, cfg.Settings.TargetLanguage, translation)
-			translatedText := translation.Message.Result.TranslatedText
+			subtitles[keys] = new(Subtitle)
+			subtitles[keys].start = startDuration
+			subtitles[keys].end = endDuration
+			subtitles[keys].text = text
 
-			holder[startCodeTrimmed] = make(map[string]string)
-			holder[startCodeTrimmed]["text"] = translatedText
-			holder[startCodeTrimmed]["start"] = startCode
-			holder[startCodeTrimmed]["end"] = durationToVTT(parseTimecode(end.Milliseconds())).Timecode
-			counter = append(counter, startCodeTrimmed)
+			subtitlesKeys = append(subtitlesKeys, keys)
 		}
 	}
 
-	sort.Strings(counter)
-
-	for _, value := range counter {
-		f, err := os.OpenFile(cfg.Settings.OutputFile,
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			check(err)
-		}
-		defer f.Close()
-		if _, err := f.WriteString(holder[value]["start"] + " --> " + holder[value]["end"] + "\n" + holder[value]["text"] + "\n\n"); err != nil {
-			check(err)
-		}
-	}
-	fmt.Println(cfg.Settings.OutputFile + " has been made.")
-	return true
+	return
 }
 
 func parseTimecode(timecode int64) (parsed Duration) {
@@ -175,11 +156,90 @@ func parseTimecode(timecode int64) (parsed Duration) {
 	parsed.Seconds = int64((timecode / 1000) % 60)
 	parsed.Minutes = int64((timecode / (1000 * 60)) % 60)
 	parsed.Hours = int64((timecode / (1000 * 60 * 60)) % 24)
+
 	return
 }
 
-func durationToVTT(duration Duration) (vtt FormatVTT) {
+func naver(text string, source string, target string, targetStruct interface{}) error {
+	body := strings.NewReader(`source=` + source + `&target=` + target + `&text=` + text)
+	req, err := http.NewRequest("POST", cfg.Naver.Endpoint, body)
+	check(err)
 
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("X-Naver-Client-Id", cfg.Naver.ClientId)
+	req.Header.Set("X-Naver-Client-Secret", cfg.Naver.ClientSecret)
+
+	resp, err := http.DefaultClient.Do(req)
+	check(err)
+
+	defer resp.Body.Close()
+
+	return json.NewDecoder(resp.Body).Decode(targetStruct)
+}
+
+func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, fixOptions FixOptions) (map[string]*Subtitle, []string) {
+	sort.Strings(subtitlesKeys)
+
+	for key := 0; key < len(subtitlesKeys); key++ {
+		subKey := subtitlesKeys[key]
+		if key+1 < len(subtitlesKeys) {
+			if subtitles[subKey].text == subtitles[subtitlesKeys[key+1]].text {
+				subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
+				subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
+				key--
+			} else if fixOptions.IgnoreWhitespace && strings.ReplaceAll(subtitles[subKey].text, " ", "") == strings.ReplaceAll(subtitles[subtitlesKeys[key+1]].text, " ", "") {
+				subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
+				subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
+				key--
+			} else if fixOptions.PartialMatch {
+				// TODO
+			}
+		}
+
+	}
+
+	return subtitles, subtitlesKeys
+}
+
+func translateSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, translateOptions TranslateOptions) (map[string]*Subtitle, []string) {
+
+	for _, value := range subtitlesKeys {
+		if translateOptions.Client == "Naver" {
+			translation := new(Translation)
+			naver(subtitles[value].text, translateOptions.Source, translateOptions.Target, translation)
+			subtitles[value].text = translation.Message.Result.TranslatedText
+		}
+
+	}
+
+	return subtitles, subtitlesKeys
+}
+
+func writeToFile(subtitles map[string]*Subtitle, subtitlesKeys []string, format string) {
+	for _, value := range subtitlesKeys {
+		// Format
+		var timecode string
+		var text string
+		if format == "vtt" {
+			start := durationToVTT(subtitles[value].start)
+			end := durationToVTT(subtitles[value].end)
+			timecode = start.Timecode + " --> " + end.Timecode + "\n"
+			text = subtitles[value].text + "\n\n"
+		}
+
+		// Write to file
+		f, err := os.OpenFile(cfg.Settings.OutputFile,
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		check(err)
+		defer f.Close()
+
+		if _, err := f.WriteString(timecode + text); err != nil {
+			check(err)
+		}
+	}
+}
+
+func durationToVTT(duration Duration) (vtt FormatVTT) {
 	vtt.Hours = strconv.FormatInt(duration.Hours, 10)
 	vtt.Minutes = strconv.FormatInt(duration.Minutes, 10)
 	vtt.Seconds = strconv.FormatInt(duration.Seconds, 10)
@@ -203,6 +263,14 @@ func durationToVTT(duration Duration) (vtt FormatVTT) {
 	return
 }
 
+func deleteFromSlice(arr []string, i int) []string {
+	// Remove the element at index i from a.
+	copy(arr[i:], arr[i+1:]) // Shift a[i+1:] left one index.
+	arr[len(arr)-1] = ""     // Erase last element (write zero value).
+	arr = arr[:len(arr)-1]   // Truncate slice.
+	return arr
+}
+
 func check(e error) {
 	if e != nil {
 		panic(e)
@@ -211,11 +279,22 @@ func check(e error) {
 
 func main() {
 	err := cleanenv.ReadConfig("config.json", &cfg)
-	if err != nil {
-		panic(err)
+	check(err)
+	// 	1) 	Parse text from video, return map with key: start.Milliseconds()
+	//    	and value Subtitle, also a slice for sorting
+	subtitles, subtitlesKeys := subsFromVideo(cfg.Settings.InputFile)
+
+	//	2)	Fix subtitles by merging duplicates (as long as they come after each other within x time)
+	fixOptions := &FixOptions{}
+	fixOptions.IgnoreWhitespace = true
+	subtitles, subtitlesKeys = fixSubtitles(subtitles, subtitlesKeys, *fixOptions)
+
+	//	3)	Translate subtitles (language of choice, optional)
+	if cfg.Settings.Translate {
+		translateOptions := &TranslateOptions{"Naver", cfg.Settings.SourceLanguage, cfg.Settings.TargetLanguage}
+		subtitles, subtitlesKeys = translateSubtitles(subtitles, subtitlesKeys, *translateOptions)
 	}
-	text := textfromvid(cfg.Settings.InputFile)
-	if text {
-		fmt.Println("done")
-	}
+
+	//	4)	Write subtitles to file (format of choice)
+	writeToFile(subtitles, subtitlesKeys, "vtt")
 }
