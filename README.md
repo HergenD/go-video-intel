@@ -26,32 +26,46 @@ The config looks like this:
     "settings": {
         "detection": {
             "language": {
+                // Determines if text is filtered based on script
                 "filterScript": true,
                 "script": "Hangul",
+                // Determines if text is filtered based on language
                 "filterLanguage": false,
                 "language": "Korean",
+                // Determines if we give the OCR a language hint
                 "detectLanguage": false,
+                // BCP-47 format for language hint
                 "languageCode": "ko-KR"
             },
             "subtitleLocation": {
+                // Determines if we filter out text not within a given box
                 "restrictLocation": true,
+                // Box size in %. Box size is from top to bottom, left to right, 0 to 100%
                 "top": 60,
                 "bottom": 100,
                 "left": 0,
                 "right": 100
             },
+            // Confidence threshold, filter out any text with a confidence below this (around 90 recommended)
             "confidence": 90
         },
         "translation": {
+            // Determines if we translate the text or not
             "translate": true,
+            // What translation service to use, currently supported: Naver
             "engine": "Naver",
+            // Languages in BCP-47 format, currently supported: ko-KR, en-US, en-GB
             "sourceLanguage": "ko-KR",
             "targetLanguage": "en-US"
         },
         "fixSubtitles": {
+            // Determines if we attempt to do some fixes on the subtitles (highly recommended)
             "fix": true,
+            // Determines if whitespace should be take in consideration to match duplicate text (ignore = recommended)
             "ignoreWhitespace": true,
+            // Determines minimum subtitle duration, although duration could be shorter if next subtitle starts before this minimum amount (in milliseconds)
             "minimumDuration": 2000,
+            // Determines if duplicate text can be matched based on a x% of words matching
             "partialMatch": true,
             "partialMatchPercentage": 75
         },        
