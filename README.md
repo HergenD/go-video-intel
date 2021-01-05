@@ -6,7 +6,7 @@ Can be used to detect and translate hardcoded subtitles / other text in video, a
 
 OCR is done using Google's video intelligence, translation using Naver's Papago.
 
-Currently, use is limited to KO>EN translation due to Papago use and detection limited to Hangul, although more options (and all languages/scripts) will be supported.
+Currently, use is limited to KO>EN translation due to Papago use, but all languages should be detectable without translation (not tested, WIP)
 
 To use, simply copy the `config.json.example` to `config.json` and fill the details. API keys for both Google and Naver are required.
 
@@ -24,12 +24,37 @@ The config looks like this:
         "apiKey": "path"
     },
     "settings": {
-        "script": "Hangul",
-        "sourceLanguage": "ko",
-        "targetLanguage": "en",
-        "inputFile": "input.mp4",
-        "outputFile": "output.vtt",
-        "translate": true
+        "detection": {
+            "language": {
+                "filterScript": true,
+                "script": "Hangul",
+                "filterLanguage": false,
+                "language": "Korean",
+                "detectLanguage": false,
+                "languageCode": "ko-KR"
+            },
+            "subtitleLocation": {
+                "restrictLocation": true,
+                "top": 60,
+                "bottom": 100
+            },
+            "confidence": 90
+        },
+        "translation": {
+            "translate": true,
+            "engine": "Naver",
+            "sourceLanguage": "ko-KR",
+            "targetLanguage": "en-US"
+        },
+        "fixSubtitles": {
+            "fix": true,
+            "ignoreWhitespace": true,
+            "minimumDuration": 2000,
+            "partialMatch": true,
+            "partialMatchPercentage": 75
+        },        
+        "inputFile": "video/input.mp4",
+        "outputFile": "output/output.vtt"
     }
 }
 ```
