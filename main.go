@@ -168,7 +168,6 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 	for _, annotation := range result.TextAnnotations {
 		text := annotation.GetText()
 		info := whatlanggo.Detect(text)
-		fmt.Println(info.Lang)
 		segment := annotation.GetSegments()[0]
 		confidence := segment.GetConfidence()
 		frame := segment.GetFrames()[0]
