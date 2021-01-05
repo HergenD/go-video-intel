@@ -20,7 +20,9 @@
             "subtitleLocation": {
                 "restrictLocation": true,
                 "top": 60,
-                "bottom": 100
+                "bottom": 100,
+                "left": 0,
+                "right": 100
             },
             "confidence": 90
         },

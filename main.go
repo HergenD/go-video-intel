@@ -79,6 +79,8 @@ type SubtitleLocationConfig struct {
 	RestrictLocation bool    `json:"restrictLocation"`
 	Top              float32 `json:"top"`
 	Bottom           float32 `json:"bottom"`
+	Left             float32 `json:"left"`
+	Right            float32 `json:"right"`
 }
 
 type TranslationConfig struct {
@@ -172,16 +174,25 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 			frame := segment.GetFrames()[0]
 			vertices := frame.GetRotatedBoundingBox().GetVertices()
 
+			// If a detection position is enabled, filter based on that
 			if cfg.Settings.Detection.SubtitleLocation.RestrictLocation {
+				// Filter top edge of box (vertices.Y 0 & 1)
 				if vertices[0].GetY()*100 > cfg.Settings.Detection.SubtitleLocation.Top && vertices[1].GetY()*100 > cfg.Settings.Detection.SubtitleLocation.Top {
+					// Filter bottom edge of box (vertices.Y 2 & 3)
 					if vertices[2].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Bottom && vertices[3].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Bottom {
-						subtitles[keys] = new(Subtitle)
-						subtitles[keys].Start = startDuration
-						subtitles[keys].End = endDuration
-						subtitles[keys].Text = text
-						subtitles[keys].Vertices = vertices
-						subtitles[keys].Confidence = confidence
-						subtitlesKeys = append(subtitlesKeys, keys)
+						// Filter left edge of box (vertices.X 0 & 2)
+						if vertices[0].GetX()*100 > cfg.Settings.Detection.SubtitleLocation.Left && vertices[2].GetY()*100 > cfg.Settings.Detection.SubtitleLocation.Left {
+							// Filter right edge of box (vertices.X 1 & 3)
+							if vertices[1].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Right && vertices[3].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Right {
+								subtitles[keys] = new(Subtitle)
+								subtitles[keys].Start = startDuration
+								subtitles[keys].End = endDuration
+								subtitles[keys].Text = text
+								subtitles[keys].Vertices = vertices
+								subtitles[keys].Confidence = confidence
+								subtitlesKeys = append(subtitlesKeys, keys)
+							}
+						}
 					}
 				}
 			} else {
