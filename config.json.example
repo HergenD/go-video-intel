@@ -8,15 +8,36 @@
         "apiKey": "path"
     },
     "settings": {
-        "script": "Hangul",
-        "sourceLanguage": "ko",
-        "targetLanguage": "en",
-        "inputFile": "input.mp4",
-        "outputFile": "output.vtt",
-        "translate": true,
-        "confidence": 90,
-        "restrictVertices": true,
-        "startYPerc": 60,
-        "endYPerc": 100
+        "detection": {
+            "language": {
+                "filterScript": true,
+                "script": "Hangul",
+                "filterLanguage": false,
+                "language": "Korean",
+                "detectLanguage": false,
+                "languageCode": "ko-KR"
+            },
+            "subtitleLocation": {
+                "restrictLocation": true,
+                "top": 60,
+                "bottom": 100
+            },
+            "confidence": 90
+        },
+        "translation": {
+            "translate": true,
+            "engine": "Naver",
+            "sourceLanguage": "ko-KR",
+            "targetLanguage": "en-US"
+        },
+        "fixSubtitles": {
+            "fix": true,
+            "ignoreWhitespace": true,
+            "minimumDuration": 2000,
+            "partialMatch": true,
+            "partialMatchPercentage": 75
+        },        
+        "inputFile": "video/input.mp4",
+        "outputFile": "output/output.vtt"
     }
 }
