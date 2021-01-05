@@ -390,6 +390,14 @@ func translateSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) 
 }
 
 func writeToFile(subtitles map[string]*Subtitle, subtitlesKeys []string, format string) {
+	f, err := os.Create(cfg.Settings.OutputFile)
+	check(err)
+	defer f.Close()
+
+	if _, err := f.WriteString("WEBVTT"); err != nil {
+		check(err)
+	}
+
 	for _, value := range subtitlesKeys {
 		// Format
 		var timecode string
@@ -397,16 +405,11 @@ func writeToFile(subtitles map[string]*Subtitle, subtitlesKeys []string, format 
 		if format == "vtt" {
 			start := durationToVTT(subtitles[value].Start)
 			end := durationToVTT(subtitles[value].End)
-			timecode = start.Timecode + " --> " + end.Timecode + "\n"
-			text = subtitles[value].Text + "\n\n"
+			timecode = "\n\n" + start.Timecode + " --> " + end.Timecode + "\n"
+			text = subtitles[value].Text
 		}
 
 		// Write to file
-		f, err := os.OpenFile(cfg.Settings.OutputFile,
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		check(err)
-		defer f.Close()
-
 		if _, err := f.WriteString(timecode + text); err != nil {
 			check(err)
 		}
@@ -454,6 +457,24 @@ func check(e error) {
 func main() {
 	err := cleanenv.ReadConfig("config.json", &cfg)
 	check(err)
+
+	if _, err := os.Stat(cfg.Settings.InputFile); err == nil {
+		fmt.Println("Start processing", cfg.Settings.InputFile)
+	} else if os.IsNotExist(err) {
+		fmt.Println("No input file found")
+		os.Exit(1)
+	} else {
+		panic(err)
+	}
+
+	if _, err := os.Stat(cfg.Settings.OutputFile); err == nil {
+		fmt.Println("Output file exists, aborting.")
+		os.Exit(1)
+	} else if os.IsNotExist(err) {
+		fmt.Println("Output will be written to:", cfg.Settings.OutputFile)
+	} else {
+		panic(err)
+	}
 
 	// 	1) 	Parse text from video, return map with key: start.Milliseconds()
 	//    	and value Subtitle, also a slice for sorting
