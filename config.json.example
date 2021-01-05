@@ -13,6 +13,10 @@
         "targetLanguage": "en",
         "inputFile": "input.mp4",
         "outputFile": "output.vtt",
-        "translate": true
+        "translate": true,
+        "confidence": 90,
+        "restrictVertices": true,
+        "startYPerc": 60,
+        "endYPerc": 100
     }
 }

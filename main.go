@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -52,12 +53,16 @@ type GoogleConfig struct {
 }
 
 type SettingsConfig struct {
-	Translate      bool   `json:"translate"`
-	Script         string `json:"script"`
-	SourceLanguage string `json:"sourceLanguage"`
-	TargetLanguage string `json:"targetLanguage"`
-	InputFile      string `json:"inputFile"`
-	OutputFile     string `json:"outputFile"`
+	Translate        bool    `json:"translate"`
+	Script           string  `json:"script"`
+	SourceLanguage   string  `json:"sourceLanguage"`
+	TargetLanguage   string  `json:"targetLanguage"`
+	InputFile        string  `json:"inputFile"`
+	OutputFile       string  `json:"outputFile"`
+	Confidence       float32 `json:"confidence"`
+	RestrictVertices bool    `json:"restrictVertices"`
+	StartYPerc       float32 `json:"startYPerc"`
+	EndYPerc         float32 `json:"endYPerc"`
 }
 
 type Duration struct {
@@ -77,9 +82,11 @@ type FormatVTT struct {
 }
 
 type Subtitle struct {
-	start Duration
-	end   Duration
-	text  string
+	Start      Duration
+	End        Duration
+	Text       string
+	Vertices   []*videopb.NormalizedVertex
+	Confidence float32
 }
 
 type PartialMatching struct {
@@ -135,8 +142,10 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 	for _, annotation := range result.TextAnnotations {
 		text := annotation.GetText()
 		info := whatlanggo.Detect(text)
-		if whatlanggo.Scripts[info.Script] == cfg.Settings.Script {
-			segment := annotation.GetSegments()[0]
+		segment := annotation.GetSegments()[0]
+		confidence := segment.GetConfidence()
+		if whatlanggo.Scripts[info.Script] == cfg.Settings.Script && confidence*100 > cfg.Settings.Confidence {
+
 			start, _ := ptypes.Duration(segment.GetSegment().GetStartTimeOffset())
 			end, _ := ptypes.Duration(segment.GetSegment().GetEndTimeOffset())
 			startDuration := parseTimecode(start.Milliseconds())
@@ -146,12 +155,31 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 				keys = "0" + keys
 			}
 
-			subtitles[keys] = new(Subtitle)
-			subtitles[keys].start = startDuration
-			subtitles[keys].end = endDuration
-			subtitles[keys].text = text
+			frame := segment.GetFrames()[0]
+			vertices := frame.GetRotatedBoundingBox().GetVertices()
 
-			subtitlesKeys = append(subtitlesKeys, keys)
+			if cfg.Settings.RestrictVertices {
+				if vertices[0].GetY()*100 > cfg.Settings.StartYPerc && vertices[1].GetY()*100 > cfg.Settings.StartYPerc {
+					if vertices[2].GetY()*100 < cfg.Settings.EndYPerc && vertices[3].GetY()*100 < cfg.Settings.EndYPerc {
+						subtitles[keys] = new(Subtitle)
+						subtitles[keys].Start = startDuration
+						subtitles[keys].End = endDuration
+						subtitles[keys].Text = text
+						subtitles[keys].Vertices = vertices
+						subtitles[keys].Confidence = confidence
+						subtitlesKeys = append(subtitlesKeys, keys)
+					}
+				}
+			} else {
+				subtitles[keys] = new(Subtitle)
+				subtitles[keys].Start = startDuration
+				subtitles[keys].End = endDuration
+				subtitles[keys].Text = text
+				subtitles[keys].Vertices = vertices
+				subtitles[keys].Confidence = confidence
+				subtitlesKeys = append(subtitlesKeys, keys)
+			}
+
 		}
 	}
 
@@ -189,21 +217,18 @@ func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, fixOpt
 	sort.Strings(subtitlesKeys)
 
 	// Fix duplicates
+	mergeCount := 0
 	for key := 0; key < len(subtitlesKeys); key++ {
 		subKey := subtitlesKeys[key]
-
+		merge := false
 		if key+1 < len(subtitlesKeys) {
-			if subtitles[subKey].text == subtitles[subtitlesKeys[key+1]].text {
-				subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
-				subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
-				key--
-			} else if fixOptions.IgnoreWhitespace && strings.ReplaceAll(subtitles[subKey].text, " ", "") == strings.ReplaceAll(subtitles[subtitlesKeys[key+1]].text, " ", "") {
-				subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
-				subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
-				key--
+			if subtitles[subKey].Text == subtitles[subtitlesKeys[key+1]].Text {
+				merge = true
+			} else if fixOptions.IgnoreWhitespace && strings.ReplaceAll(subtitles[subKey].Text, " ", "") == strings.ReplaceAll(subtitles[subtitlesKeys[key+1]].Text, " ", "") {
+				merge = true
 			} else if fixOptions.Partial.Match {
-				base := strings.Fields(subtitles[subKey].text)
-				compare := strings.Fields(subtitles[subtitlesKeys[key+1]].text)
+				base := strings.Fields(subtitles[subKey].Text)
+				compare := strings.Fields(subtitles[subtitlesKeys[key+1]].Text)
 				match := 0
 
 				for _, value := range base {
@@ -217,22 +242,32 @@ func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, fixOpt
 				perc := float64(match) / float64(len(base)) * float64(100)
 
 				if perc > float64(fixOptions.Partial.MatchPercentage) {
-					subtitles[subKey].end = subtitles[subtitlesKeys[key+1]].end
-					subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
-					key--
+					merge = true
 				}
 			}
 		}
+
+		// Merge subtitles based on confidence
+		if merge {
+			mergeCount++
+			subtitles[subKey].End = subtitles[subtitlesKeys[key+1]].End
+			if subtitles[subKey].Confidence < subtitles[subtitlesKeys[key+1]].Confidence {
+				subtitles[subKey].Text = subtitles[subtitlesKeys[key+1]].Text
+			}
+			subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
+			key--
+		}
 	}
+	fmt.Println("Subtitles merged: ", mergeCount)
 
 	// Fix duration
 	for index, value := range subtitlesKeys {
 		subtitle := subtitles[value]
-		if (subtitle.end.Source - subtitle.start.Source) < int64(fixOptions.MinimumDuration) {
+		if (subtitle.End.Source - subtitle.Start.Source) < int64(fixOptions.MinimumDuration) {
 			var newLength int64
 			if index+1 < len(subtitlesKeys) {
-				if (subtitles[subtitlesKeys[index+1]].start.Source - subtitle.start.Source) < int64(fixOptions.MinimumDuration) {
-					newLength = subtitles[subtitlesKeys[index+1]].start.Source - subtitle.start.Source
+				if (subtitles[subtitlesKeys[index+1]].Start.Source - subtitle.Start.Source) < int64(fixOptions.MinimumDuration) {
+					newLength = subtitles[subtitlesKeys[index+1]].Start.Source - subtitle.Start.Source
 				} else {
 					newLength = int64(fixOptions.MinimumDuration)
 				}
@@ -240,8 +275,8 @@ func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, fixOpt
 				newLength = int64(fixOptions.MinimumDuration)
 			}
 
-			newEnd := parseTimecode(subtitle.start.Source + newLength)
-			subtitles[value].end = newEnd
+			newEnd := parseTimecode(subtitle.Start.Source + newLength)
+			subtitles[value].End = newEnd
 		}
 	}
 
@@ -262,8 +297,8 @@ func translateSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string, 
 	for _, value := range subtitlesKeys {
 		if translateOptions.Client == "Naver" {
 			translation := new(Translation)
-			naver(subtitles[value].text, translateOptions.Source, translateOptions.Target, translation)
-			subtitles[value].text = translation.Message.Result.TranslatedText
+			naver(subtitles[value].Text, translateOptions.Source, translateOptions.Target, translation)
+			subtitles[value].Text = translation.Message.Result.TranslatedText
 		}
 
 	}
@@ -277,10 +312,10 @@ func writeToFile(subtitles map[string]*Subtitle, subtitlesKeys []string, format 
 		var timecode string
 		var text string
 		if format == "vtt" {
-			start := durationToVTT(subtitles[value].start)
-			end := durationToVTT(subtitles[value].end)
+			start := durationToVTT(subtitles[value].Start)
+			end := durationToVTT(subtitles[value].End)
 			timecode = start.Timecode + " --> " + end.Timecode + "\n"
-			text = subtitles[value].text + "\n\n"
+			text = subtitles[value].Text + "\n\n"
 		}
 
 		// Write to file
@@ -339,10 +374,12 @@ func main() {
 
 	// 	1) 	Parse text from video, return map with key: start.Milliseconds()
 	//    	and value Subtitle, also a slice for sorting
+	fmt.Println("Doing OCR through Google API")
 	subtitles, subtitlesKeys := subsFromVideo(cfg.Settings.InputFile)
 
 	//	2)	Fix subtitles by merging duplicates (as long as they come after each other within x time)
 	// TODO: Put these options in the cfg
+	fmt.Println("Fixing subitiles")
 	fixOptions := &FixOptions{}
 	fixOptions.IgnoreWhitespace = true
 	fixOptions.MinimumDuration = 2000
@@ -350,12 +387,16 @@ func main() {
 	fixOptions.Partial.MatchPercentage = 75
 	subtitles, subtitlesKeys = fixSubtitles(subtitles, subtitlesKeys, *fixOptions)
 
+	fmt.Println("Translating subtitles")
 	//	3)	Translate subtitles (language of choice, optional)
 	if cfg.Settings.Translate {
 		translateOptions := &TranslateOptions{"Naver", cfg.Settings.SourceLanguage, cfg.Settings.TargetLanguage}
 		subtitles, subtitlesKeys = translateSubtitles(subtitles, subtitlesKeys, *translateOptions)
 	}
 
+	fmt.Println("Writing to file")
 	//	4)	Write subtitles to file (format of choice)
 	writeToFile(subtitles, subtitlesKeys, "vtt")
+
+	fmt.Println("Done")
 }
