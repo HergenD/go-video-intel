@@ -160,7 +160,8 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 		info := whatlanggo.Detect(text)
 		segment := annotation.GetSegments()[0]
 		confidence := segment.GetConfidence()
-		if whatlanggo.Scripts[info.Script] == cfg.Settings.Detection.Language.Script && confidence*100 > cfg.Settings.Detection.Confidence {
+		if whatlanggo.Scripts[info.Script] == cfg.Settings.Detection.Language.Script &&
+			confidence*100 > cfg.Settings.Detection.Confidence {
 
 			start, _ := ptypes.Duration(segment.GetSegment().GetStartTimeOffset())
 			end, _ := ptypes.Duration(segment.GetSegment().GetEndTimeOffset())
@@ -174,26 +175,31 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 			frame := segment.GetFrames()[0]
 			vertices := frame.GetRotatedBoundingBox().GetVertices()
 
+			sl := cfg.Settings.Detection.SubtitleLocation
+
 			// If a detection position is enabled, filter based on that
-			if cfg.Settings.Detection.SubtitleLocation.RestrictLocation {
-				// Filter top edge of box (vertices.Y 0 & 1)
-				if vertices[0].GetY()*100 > cfg.Settings.Detection.SubtitleLocation.Top && vertices[1].GetY()*100 > cfg.Settings.Detection.SubtitleLocation.Top {
+			if sl.RestrictLocation {
+				if // Filter top edge of box (vertices.Y 0 & 1)
+				vertices[0].GetY()*100 > sl.Top &&
+					vertices[1].GetY()*100 > sl.Top &&
 					// Filter bottom edge of box (vertices.Y 2 & 3)
-					if vertices[2].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Bottom && vertices[3].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Bottom {
-						// Filter left edge of box (vertices.X 0 & 2)
-						if vertices[0].GetX()*100 > cfg.Settings.Detection.SubtitleLocation.Left && vertices[2].GetY()*100 > cfg.Settings.Detection.SubtitleLocation.Left {
-							// Filter right edge of box (vertices.X 1 & 3)
-							if vertices[1].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Right && vertices[3].GetY()*100 < cfg.Settings.Detection.SubtitleLocation.Right {
-								subtitles[keys] = new(Subtitle)
-								subtitles[keys].Start = startDuration
-								subtitles[keys].End = endDuration
-								subtitles[keys].Text = text
-								subtitles[keys].Vertices = vertices
-								subtitles[keys].Confidence = confidence
-								subtitlesKeys = append(subtitlesKeys, keys)
-							}
-						}
-					}
+					vertices[2].GetY()*100 < sl.Bottom &&
+					vertices[3].GetY()*100 < sl.Bottom &&
+					// Filter left edge of box (vertices.X 0 & 2)
+					vertices[0].GetX()*100 > sl.Left &&
+					vertices[2].GetY()*100 > sl.Left &&
+					// Filter right edge of box (vertices.X 1 & 3)
+					vertices[1].GetY()*100 < sl.Right &&
+					vertices[3].GetY()*100 < sl.Right {
+
+					subtitles[keys] = new(Subtitle)
+					subtitles[keys].Start = startDuration
+					subtitles[keys].End = endDuration
+					subtitles[keys].Text = text
+					subtitles[keys].Vertices = vertices
+					subtitles[keys].Confidence = confidence
+					subtitlesKeys = append(subtitlesKeys, keys)
+
 				}
 			} else {
 				subtitles[keys] = new(Subtitle)
