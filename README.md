@@ -26,7 +26,7 @@ The config looks like this:
     "settings": {
         "detection": {
             "language": {
-                // Determines if text is filtered based on script
+                # Determines if text is filtered based on script
                 "filterScript": true,
                 "script": "Hangul",
                 // Determines if text is filtered based on language
