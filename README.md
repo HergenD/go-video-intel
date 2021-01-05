@@ -13,7 +13,7 @@ To use, simply copy the `config.json.example` to `config.json` and fill the deta
 ## Config
 
 The config looks like this:
-```j
+```js
 {
     "naver": {
         "clientId": "id",
