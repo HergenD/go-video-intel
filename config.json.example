@@ -15,7 +15,7 @@
                 "filterLanguage": false,
                 "language": "Korean",
                 "detectLanguage": false,
-                "languageCode": "ko-KR"
+                "languageHints": ["ko-KR"]
             },
             "subtitleLocation": {
                 "restrictLocation": true,
@@ -28,9 +28,9 @@
         },
         "translation": {
             "translate": true,
-            "engine": "Naver",
-            "sourceLanguage": "ko-KR",
-            "targetLanguage": "en-US"
+            "engine": "Google",
+            "sourceLanguage": "ko",
+            "targetLanguage": "en"
         },
         "fixSubtitles": {
             "fix": true,
