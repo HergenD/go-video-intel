@@ -13,7 +13,7 @@ To use, simply copy the `config.json.example` to `config.json` and fill the deta
 ## Config
 
 The config looks like this:
-```json
+```j
 {
     "naver": {
         "clientId": "id",
@@ -26,7 +26,7 @@ The config looks like this:
     "settings": {
         "detection": {
             "language": {
-                # Determines if text is filtered based on script
+                // Determines if text is filtered based on script
                 "filterScript": true,
                 "script": "Hangul",
                 // Determines if text is filtered based on language
