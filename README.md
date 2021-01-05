@@ -63,7 +63,8 @@ The config looks like this:
             "fix": true,
             // Determines if whitespace should be take in consideration to match duplicate text (ignore = recommended)
             "ignoreWhitespace": true,
-            // Determines minimum subtitle duration, although duration could be shorter if next subtitle starts before this minimum amount (in milliseconds)
+            // Determines minimum subtitle duration, although duration could be shorter if next 
+            // subtitle starts before this minimum amount (in milliseconds)
             "minimumDuration": 2000,
             // Determines if duplicate text can be matched based on a x% of words matching
             "partialMatch": true,
