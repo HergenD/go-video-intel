@@ -164,21 +164,55 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 
 	result := resp.GetAnnotationResults()[0]
 	fmt.Println("Total lines of text found:", len(result.TextAnnotations))
-	// Loop over results to filter and store subtitles
+	// Loop over results to store subtitles
 	for _, annotation := range result.TextAnnotations {
 		text := annotation.GetText()
-		info := whatlanggo.Detect(text)
-		segment := annotation.GetSegments()[0]
-		confidence := segment.GetConfidence()
-		frame := segment.GetFrames()[0]
-		vertices := frame.GetRotatedBoundingBox().GetVertices()
+		for _, segment := range annotation.GetSegments() {
+			confidence := segment.GetConfidence()
+			frame := segment.GetFrames()[0]
+			vertices := frame.GetRotatedBoundingBox().GetVertices()
+			start, _ := ptypes.Duration(segment.GetSegment().GetStartTimeOffset())
+			end, _ := ptypes.Duration(segment.GetSegment().GetEndTimeOffset())
+			startDuration := parseTimecode(start.Milliseconds())
+			endDuration := parseTimecode(end.Milliseconds())
+			keys := strconv.FormatInt(start.Milliseconds(), 10)
+			for len(keys) < 12 {
+				keys = "0" + keys
+			}
+			_, found := find(subtitlesKeys, keys)
+			if found {
+				keys = keys + "a"
+			}
+
+			subtitles[keys] = new(Subtitle)
+			subtitles[keys].Start = startDuration
+			subtitles[keys].End = endDuration
+			subtitles[keys].Text = text
+			subtitles[keys].Vertices = vertices
+			subtitles[keys].Confidence = confidence
+			subtitlesKeys = append(subtitlesKeys, keys)
+		}
+	}
+
+	sort.Strings(subtitlesKeys)
+
+	fmt.Println("Filtered text (subtitles) found:", len(subtitlesKeys))
+	return
+}
+
+func filterSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[string]*Subtitle, []string) {
+	sort.Strings(subtitlesKeys)
+	for i := 0; i < len(subtitlesKeys); i++ {
+		key := subtitlesKeys[i]
+		subtitle := subtitles[key]
 
 		// Set filter counters, confidence is always filtered so start on 1
 		passedFilters := 0
 		filtersNeeded := 1
+		info := whatlanggo.Detect(subtitle.Text)
 
 		// Confidence filter
-		if confidence*100 > cfg.Settings.Detection.Confidence {
+		if subtitle.Confidence*100 > cfg.Settings.Detection.Confidence {
 			passedFilters++
 		}
 		// Script filter
@@ -200,45 +234,27 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 		if sl.RestrictLocation {
 			filtersNeeded++
 			if // Filter top edge of box (vertices.Y 0 & 1)
-			vertices[0].GetY()*100 > sl.Top &&
-				vertices[1].GetY()*100 > sl.Top &&
+			subtitle.Vertices[0].GetY()*100 > sl.Top &&
+				subtitle.Vertices[1].GetY()*100 > sl.Top &&
 				// Filter bottom edge of box (vertices.Y 2 & 3)
-				vertices[2].GetY()*100 < sl.Bottom &&
-				vertices[3].GetY()*100 < sl.Bottom &&
+				subtitle.Vertices[2].GetY()*100 < sl.Bottom &&
+				subtitle.Vertices[3].GetY()*100 < sl.Bottom &&
 				// Filter left edge of box (vertices.X 0 & 2)
-				vertices[0].GetX()*100 > sl.Left &&
-				vertices[2].GetY()*100 > sl.Left &&
+				subtitle.Vertices[0].GetX()*100 > sl.Left &&
+				subtitle.Vertices[2].GetY()*100 > sl.Left &&
 				// Filter right edge of box (vertices.X 1 & 3)
-				vertices[1].GetY()*100 < sl.Right &&
-				vertices[3].GetY()*100 < sl.Right {
+				subtitle.Vertices[1].GetY()*100 < sl.Right &&
+				subtitle.Vertices[3].GetY()*100 < sl.Right {
 			}
 			passedFilters++
 		}
 
-		if passedFilters >= filtersNeeded {
-			start, _ := ptypes.Duration(segment.GetSegment().GetStartTimeOffset())
-			end, _ := ptypes.Duration(segment.GetSegment().GetEndTimeOffset())
-			startDuration := parseTimecode(start.Milliseconds())
-			endDuration := parseTimecode(end.Milliseconds())
-			keys := strconv.FormatInt(start.Milliseconds(), 10)
-			for len(keys) < 12 {
-				keys = "0" + keys
-			}
-
-			subtitles[keys] = new(Subtitle)
-			subtitles[keys].Start = startDuration
-			subtitles[keys].End = endDuration
-			subtitles[keys].Text = text
-			subtitles[keys].Vertices = vertices
-			subtitles[keys].Confidence = confidence
-			subtitlesKeys = append(subtitlesKeys, keys)
+		if filtersNeeded > passedFilters {
+			subtitlesKeys = deleteFromSlice(subtitlesKeys, i)
+			i--
 		}
 	}
-
-	sort.Strings(subtitlesKeys)
-
-	fmt.Println("Filtered text (subtitles) found:", len(subtitlesKeys))
-	return
+	return subtitles, subtitlesKeys
 }
 
 func parseTimecode(timecode int64) (parsed Duration) {
@@ -289,7 +305,7 @@ func googleTranslate(text string, target string) (string, error) {
 	return html.UnescapeString(resp[0].Text), nil
 }
 
-func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[string]*Subtitle, []string) {
+func fixDuplicates(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[string]*Subtitle, []string) {
 	// Fix duplicates
 	mergeCount := 0
 	mergeCountEasy := 0
@@ -313,7 +329,7 @@ func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[s
 				for _, value := range base {
 					i, success := find(compare, value)
 					if success {
-						deleteFromSlice(compare, i)
+						compare = deleteFromSlice(compare, i)
 						match++
 					}
 				}
@@ -341,7 +357,42 @@ func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[s
 	fmt.Println("Subtitles merged:", mergeCount)
 	fmt.Println("Of which", mergeCountEasy, "exact,", mergeCountWhitespace, "with whitespace removed and", mergeCountPartial, "partial matches")
 
-	// Fix duration
+	return subtitles, subtitlesKeys
+}
+
+func stackSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[string]*Subtitle, []string) {
+
+	stackCount := 0
+	for key := 0; key < len(subtitlesKeys); key++ {
+		subKey := subtitlesKeys[key]
+		stack := false
+		if key+1 < len(subtitlesKeys) {
+			if subtitles[subKey].Vertices[3].GetY() < subtitles[subtitlesKeys[key+1]].Vertices[0].GetY() ||
+				subtitles[subKey].Vertices[0].GetY() > subtitles[subtitlesKeys[key+1]].Vertices[3].GetY() {
+				if subtitles[subKey].Start.Source == subtitles[subtitlesKeys[key+1]].Start.Source {
+					stack = true
+				} else if subtitles[subKey].Start.Source > subtitles[subtitlesKeys[key+1]].Start.Source &&
+					subtitles[subKey].End.Source < subtitles[subtitlesKeys[key+1]].Start.Source {
+					stack = true
+				}
+			}
+		}
+		if stack {
+			stackCount++
+			if subtitles[subKey].Vertices[3].GetY() < subtitles[subtitlesKeys[key+1]].Vertices[0].GetY() {
+				subtitles[subKey].Text = subtitles[subKey].Text + "\n" + subtitles[subtitlesKeys[key+1]].Text
+			} else {
+				subtitles[subKey].Text = subtitles[subtitlesKeys[key+1]].Text + "\n" + subtitles[subKey].Text
+			}
+			subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
+			key--
+		}
+	}
+	fmt.Println("Subtitles stacked:", stackCount)
+	return subtitles, subtitlesKeys
+}
+
+func fixDuration(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[string]*Subtitle, []string) {
 	for index, value := range subtitlesKeys {
 		subtitle := subtitles[value]
 		if (subtitle.End.Source - subtitle.Start.Source) < int64(cfg.Settings.FixSubtitles.MinimumDuration) {
@@ -360,13 +411,12 @@ func fixSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[s
 			subtitles[value].End = newEnd
 		}
 	}
-
 	return subtitles, subtitlesKeys
 }
 
 func find(slice []string, val string) (int, bool) {
 	for i, item := range slice {
-		if item == val {
+		if strings.ToUpper(item) == strings.ToUpper(val) {
 			return i, true
 		}
 	}
@@ -481,20 +531,27 @@ func main() {
 	fmt.Println("Doing OCR through Google API")
 	subtitles, subtitlesKeys := subsFromVideo(cfg.Settings.InputFile)
 
-	//	2)	Fix subtitles by merging duplicates (as long as they come after each other within x time)
+	//	2)	Filter ubtitles based on config settings
+	subtitles, subtitlesKeys = filterSubtitles(subtitles, subtitlesKeys)
+
+	//	3)	Fix subtitles by merging duplicates (as long as they come after each other within x time)
 	if cfg.Settings.FixSubtitles.Fix {
 		fmt.Println("Fixing subtitles")
-		subtitles, subtitlesKeys = fixSubtitles(subtitles, subtitlesKeys)
+		subtitles, subtitlesKeys = fixDuplicates(subtitles, subtitlesKeys)
 	}
 
-	//	3)	Translate subtitles (language of choice, optional)
+	//	4)	Translate subtitles (language of choice, optional)
 	if cfg.Settings.Translation.Translate {
 		fmt.Println("Translating subtitles using", cfg.Settings.Translation.Engine)
 		subtitles, subtitlesKeys = translateSubtitles(subtitles, subtitlesKeys)
+		subtitles, subtitlesKeys = fixDuplicates(subtitles, subtitlesKeys)
 	}
 
+	subtitles, subtitlesKeys = stackSubtitles(subtitles, subtitlesKeys)
+	subtitles, subtitlesKeys = fixDuration(subtitles, subtitlesKeys)
+
 	fmt.Println("Writing to file")
-	//	4)	Write subtitles to file (format of choice)
+	//	5)	Write subtitles to file (format of choice)
 	writeToFile(subtitles, subtitlesKeys, "vtt")
 
 	fmt.Println("Done")
