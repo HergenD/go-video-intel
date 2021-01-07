@@ -123,6 +123,7 @@ type Subtitle struct {
 	Text       string
 	Vertices   []*videopb.NormalizedVertex
 	Confidence float32
+	Stacked    bool
 }
 
 var cfg Config
@@ -190,6 +191,7 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 			subtitles[keys].Text = text
 			subtitles[keys].Vertices = vertices
 			subtitles[keys].Confidence = confidence
+			subtitles[keys].Stacked = false
 			subtitlesKeys = append(subtitlesKeys, keys)
 		}
 	}
@@ -232,8 +234,8 @@ func filterSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (ma
 		sl := cfg.Settings.Detection.SubtitleLocation
 		if sl.RestrictLocation {
 			filtersNeeded++
-			if // Filter top edge of box (vertices.Y 0 & 1)
-			subtitle.Vertices[0].GetY()*100 > sl.Top &&
+			// Filter top edge of box (vertices.Y 0 & 1)
+			if subtitle.Vertices[0].GetY()*100 > sl.Top &&
 				subtitle.Vertices[1].GetY()*100 > sl.Top &&
 				// Filter bottom edge of box (vertices.Y 2 & 3)
 				subtitle.Vertices[2].GetY()*100 < sl.Bottom &&
@@ -244,8 +246,9 @@ func filterSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (ma
 				// Filter right edge of box (vertices.X 1 & 3)
 				subtitle.Vertices[1].GetY()*100 < sl.Right &&
 				subtitle.Vertices[3].GetY()*100 < sl.Right {
+
+				passedFilters++
 			}
-			passedFilters++
 		}
 
 		if filtersNeeded > passedFilters {
@@ -347,7 +350,11 @@ func fixDuplicates(subtitles map[string]*Subtitle, subtitlesKeys []string) (map[
 		if merge {
 			mergeCount++
 			subtitles[subKey].End = subtitles[subtitlesKeys[key+1]].End
-			if subtitles[subKey].Confidence < subtitles[subtitlesKeys[key+1]].Confidence {
+			if subtitles[subKey].Stacked {
+				// Do nothing
+			} else if subtitles[subtitlesKeys[key+1]].Stacked {
+				subtitles[subKey].Text = subtitles[subtitlesKeys[key+1]].Text
+			} else if subtitles[subKey].Confidence < subtitles[subtitlesKeys[key+1]].Confidence {
 				subtitles[subKey].Text = subtitles[subtitlesKeys[key+1]].Text
 			}
 			subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
@@ -384,6 +391,7 @@ func stackSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (map
 			} else {
 				subtitles[subKey].Text = subtitles[subtitlesKeys[key+1]].Text + "\n" + subtitles[subKey].Text
 			}
+			subtitles[subKey].Stacked = true
 			subtitlesKeys = deleteFromSlice(subtitlesKeys, key+1)
 			key--
 		}
@@ -538,6 +546,8 @@ func main() {
 	if cfg.Settings.FixSubtitles.Fix {
 		fmt.Println("Fixing duplicate subtitles")
 		subtitles, subtitlesKeys = fixDuplicates(subtitles, subtitlesKeys)
+		fmt.Println("Stacking subtitles")
+		subtitles, subtitlesKeys = stackSubtitles(subtitles, subtitlesKeys)
 	}
 
 	//	4)	Translate subtitles (language of choice, optional)
@@ -551,8 +561,6 @@ func main() {
 	}
 
 	if cfg.Settings.FixSubtitles.Fix {
-		fmt.Println("Stacking subtitles")
-		subtitles, subtitlesKeys = stackSubtitles(subtitles, subtitlesKeys)
 		fmt.Println("Fixing duration subtitles")
 		subtitles, subtitlesKeys = fixDuration(subtitles, subtitlesKeys)
 	}
