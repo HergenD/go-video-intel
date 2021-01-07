@@ -536,7 +536,7 @@ func main() {
 
 	//	3)	Fix subtitles by merging duplicates (as long as they come after each other within x time)
 	if cfg.Settings.FixSubtitles.Fix {
-		fmt.Println("Fixing subtitles")
+		fmt.Println("Fixing duplicate subtitles")
 		subtitles, subtitlesKeys = fixDuplicates(subtitles, subtitlesKeys)
 	}
 
@@ -544,11 +544,18 @@ func main() {
 	if cfg.Settings.Translation.Translate {
 		fmt.Println("Translating subtitles using", cfg.Settings.Translation.Engine)
 		subtitles, subtitlesKeys = translateSubtitles(subtitles, subtitlesKeys)
-		subtitles, subtitlesKeys = fixDuplicates(subtitles, subtitlesKeys)
+		if cfg.Settings.FixSubtitles.Fix {
+			fmt.Println("Fixing duplicate subtitles after translation")
+			subtitles, subtitlesKeys = fixDuplicates(subtitles, subtitlesKeys)
+		}
 	}
 
-	subtitles, subtitlesKeys = stackSubtitles(subtitles, subtitlesKeys)
-	subtitles, subtitlesKeys = fixDuration(subtitles, subtitlesKeys)
+	if cfg.Settings.FixSubtitles.Fix {
+		fmt.Println("Stacking subtitles")
+		subtitles, subtitlesKeys = stackSubtitles(subtitles, subtitlesKeys)
+		fmt.Println("Fixing duration subtitles")
+		subtitles, subtitlesKeys = fixDuration(subtitles, subtitlesKeys)
+	}
 
 	fmt.Println("Writing to file")
 	//	5)	Write subtitles to file (format of choice)
