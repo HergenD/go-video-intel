@@ -12,19 +12,19 @@
             "language": {
                 "filterScript": true,
                 "script": "Hangul",
-                "filterLanguage": false,
+                "filterLanguage": true,
                 "language": "Korean",
-                "detectLanguage": false,
+                "detectLanguage": true,
                 "languageHints": ["ko-KR"]
             },
             "subtitleLocation": {
                 "restrictLocation": true,
-                "top": 60,
-                "bottom": 100,
+                "top": 80,
+                "bottom": 97,
                 "left": 0,
                 "right": 100
             },
-            "confidence": 90
+            "confidence": 75
         },
         "translation": {
             "translate": true,
@@ -37,7 +37,7 @@
             "ignoreWhitespace": true,
             "minimumDuration": 2000,
             "partialMatch": true,
-            "partialMatchPercentage": 75
+            "partialMatchPercentage": 50
         },        
         "inputFile": "video/input.mp4",
         "outputFile": "output/output.vtt"

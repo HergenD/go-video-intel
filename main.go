@@ -196,7 +196,6 @@ func subsFromVideo(inputFile string) (subtitles map[string]*Subtitle, subtitlesK
 
 	sort.Strings(subtitlesKeys)
 
-	fmt.Println("Filtered text (subtitles) found:", len(subtitlesKeys))
 	return
 }
 
@@ -254,6 +253,7 @@ func filterSubtitles(subtitles map[string]*Subtitle, subtitlesKeys []string) (ma
 			i--
 		}
 	}
+	fmt.Println("Filtered text (subtitles) found:", len(subtitlesKeys))
 	return subtitles, subtitlesKeys
 }
 

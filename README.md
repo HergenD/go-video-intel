@@ -28,7 +28,7 @@ The config looks like this, here comments are added to explain every value, to u
                 "filterScript": true,
                 "script": "Hangul",
                 // Determines if text is filtered based on language
-                "filterLanguage": false,
+                "filterLanguage": true,
                 "language": "Korean",
                 // Determines if we give the OCR language hints
                 "detectLanguage": false,
@@ -39,13 +39,13 @@ The config looks like this, here comments are added to explain every value, to u
                 // Determines if we filter out text not within a given box
                 "restrictLocation": true,
                 // Box size in %. Box size is from top to bottom, left to right, 0 to 100%
-                "top": 60,
+                "top": 80,
                 "bottom": 100,
                 "left": 0,
                 "right": 100
             },
-            // Confidence threshold, filter out any text with a confidence below this (around 90 recommended)
-            "confidence": 90
+            // Confidence threshold, filter out any text with a confidence below this
+            "confidence": 75
         },
         "translation": {
             // Determines if we translate the text or not
@@ -66,7 +66,7 @@ The config looks like this, here comments are added to explain every value, to u
             "minimumDuration": 2000,
             // Determines if duplicate text can be matched based on a x% of words matching
             "partialMatch": true,
-            "partialMatchPercentage": 75
+            "partialMatchPercentage": 50
         },        
         "inputFile": "video/input.mp4",
         "outputFile": "output/output.vtt"
